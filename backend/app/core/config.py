@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
 
+    # Phase 3 — Auth
+    # Override in .env: any random 32+ byte string. Never commit a real secret.
+    jwt_secret: str = "dev-secret-change-me-in-production-please"
+    jwt_algorithm: str = "HS256"
+    jwt_expires_minutes: int = Field(default=60 * 24, ge=1)  # 24h default
+
 
 @lru_cache
 def get_settings() -> Settings:
