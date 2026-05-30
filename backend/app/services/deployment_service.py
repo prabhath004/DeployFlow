@@ -6,6 +6,8 @@ from app.models.deployment import Deployment
 from app.models.enums import DeploymentStatus
 from app.repositories.deployment_repo import DeploymentRepo
 from app.repositories.project_repo import ProjectRepo
+from app.observability import metrics as obs_metrics
+from app.observability.tracing import tracer
 from app.services.cache_service import CacheService
 from app.services.deployment_state_machine import (
     TERMINAL,
@@ -62,22 +64,23 @@ class DeploymentService:
 
         # Phase 6: hand the job off to the worker. Payload matches PRD §9.7.
         # CRITICAL ORDERING: commit FIRST so the worker can see the row when
-        # it consumes the message. Otherwise we get a race where the worker
-        # SELECTs and finds nothing because the API transaction is still open.
-        # If the publish fails, the row is committed but unprocessed — the
-        # worker's reclaim/scan logic will pick it up.
+        # it consumes the message.
         if self.queue is not None:
             await self.session.commit()
-            await self.queue.publish(
-                {
-                    "deployment_id": deployment.id,
-                    "project_id": project.id,
-                    "user_id": user_id,
-                    "repository_url": project.repository_url,
-                    "branch": deployment.branch,
-                    "attempt": deployment.attempt,
-                }
-            )
+            with tracer.start_as_current_span("queue.publish") as span:
+                span.set_attribute("deployflow.deployment_id", deployment.id)
+                with obs_metrics.timed_publish():
+                    await self.queue.publish(
+                        {
+                            "deployment_id": deployment.id,
+                            "project_id": project.id,
+                            "user_id": user_id,
+                            "repository_url": project.repository_url,
+                            "branch": deployment.branch,
+                            "attempt": deployment.attempt,
+                        }
+                    )
+        obs_metrics.inc_triggered()
         return deployment
 
     async def get_owned(

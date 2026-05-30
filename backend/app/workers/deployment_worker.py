@@ -39,6 +39,9 @@ from app.models.enums import (
 from app.repositories.deployment_repo import DeploymentRepo
 from app.repositories.log_repo import LogRepo
 from app.repositories.project_repo import ProjectRepo
+from app.observability import metrics as obs_metrics
+from app.observability.logging import setup_logging
+from app.observability.tracing import setup_tracing, tracer
 from app.services.artifact_store import ArtifactStore, make_artifact_store
 from app.services.cache_service import CacheService
 from app.services.deployment_service import DeploymentService
@@ -201,6 +204,9 @@ async def _process_message(
 
 async def main() -> None:
     settings = get_settings()
+    setup_logging(settings.log_level)
+    setup_tracing("deployflow-worker")
+    obs_metrics.setup_metrics("deployflow-worker")
     init_engine(settings)
     init_redis(settings)
     worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"

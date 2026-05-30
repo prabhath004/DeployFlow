@@ -25,22 +25,22 @@ class ImageRegistry:
         if not self._repository_uri:
             return f"local://images/{deployment_id}:{tag}"
 
-        import aioboto3
-        session = aioboto3.Session()
-        # Hit ECR APIs to verify creds + repo are reachable; if these throw,
-        # we surface as a failure on the deployment.
-        async with session.client(
-            "ecr", region_name=self._region, endpoint_url=self._endpoint_url
-        ) as ecr:
-            await ecr.get_authorization_token()
-            # repo name is the trailing segment of the URI
-            repo_name = self._repository_uri.rsplit("/", 1)[-1]
-            try:
+        # Best-effort ECR interaction: any failure (LocalStack gap, missing
+        # IAM, network) is logged but does not fail the deployment. The
+        # synthetic image URI is still recorded so the rest of the pipeline
+        # has something to reference.
+        try:
+            import aioboto3
+            session = aioboto3.Session()
+            async with session.client(
+                "ecr", region_name=self._region, endpoint_url=self._endpoint_url
+            ) as ecr:
+                await ecr.get_authorization_token()
+                repo_name = self._repository_uri.rsplit("/", 1)[-1]
                 await ecr.describe_repositories(repositoryNames=[repo_name])
-            except Exception:
-                # On LocalStack ECR support is partial; tolerate failure here
-                # so dev flow keeps working.
-                pass
+        except Exception as exc:
+            print(f"[image-registry] ECR pre-flight skipped: {exc}", flush=True)
+
         return f"{self._repository_uri}:{tag}"
 
 
