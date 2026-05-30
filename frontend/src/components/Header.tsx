@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
@@ -56,7 +57,7 @@ export function Header() {
   );
 }
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-black text-neutral-100">
       <Header />

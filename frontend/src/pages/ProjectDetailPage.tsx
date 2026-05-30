@@ -31,10 +31,10 @@ export default function ProjectDetailPage() {
     } catch (err) {
       if (err instanceof ApiError) setError(err.detail);
       else setError("Failed to load project.");
-      if (!project) setProject(null);
-      if (!deployments) setDeployments([]);
+      // Make sure the skeleton/empty state resolves even on first-load failure.
+      setProject((prev) => prev);
+      setDeployments((prev) => prev ?? []);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
