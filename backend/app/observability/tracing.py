@@ -57,16 +57,12 @@ def setup_tracing(service_name: str) -> None:
     _initialized = True
 
 
-def instrument_app(app, engine=None) -> None:
-    """FastAPI-specific instrumentation; engine is optional."""
+def instrument_app(app) -> None:
+    """FastAPI-specific instrumentation. Must be called before startup."""
     FastAPIInstrumentor.instrument_app(app)
-    if engine is not None:
-        # SQLAlchemy instrumentation needs the sync engine handle; for async
-        # engines we pass engine.sync_engine.
-        SQLAlchemyInstrumentor().instrument(
-            engine=engine.sync_engine,
-            enable_commenter=True,  # adds /* traceparent */ comments to SQL
-        )
+    # SQLAlchemy auto-instruments every engine created after this call.
+    # No engine arg needed; works for both sync and async engines.
+    SQLAlchemyInstrumentor().instrument(enable_commenter=True)
 
 
 tracer = trace.get_tracer("deployflow")

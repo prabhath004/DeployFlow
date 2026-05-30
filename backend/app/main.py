@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import auth, deployments, health, logs, projects
 from app.core.config import get_settings
-from app.db.database import dispose_engine, get_engine, init_engine
+from app.db.database import dispose_engine, init_engine
 from app.db.redis import dispose_redis, init_redis
 from app.observability.logging import setup_logging
 from app.observability.metrics import setup_metrics
@@ -15,13 +15,8 @@ from app.observability.tracing import instrument_app, setup_tracing
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    setup_logging(settings.log_level)
-    setup_tracing("deployflow-api")
-    setup_metrics("deployflow-api")
     init_engine(settings)
     init_redis(settings)
-    # Auto-instrument FastAPI + SQLAlchemy *after* the engine exists.
-    instrument_app(app, engine=get_engine())
     app.state.settings = settings
     try:
         yield
@@ -32,11 +27,19 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Observability MUST be set up before instrumentation, and instrumentation
+    # MUST be applied before the lifespan runs (Starlette rejects middleware
+    # additions after startup).
+    setup_logging(settings.log_level)
+    setup_tracing("deployflow-api")
+    setup_metrics("deployflow-api")
+
     app = FastAPI(
         title=settings.app_name,
         version="0.10.0",
         lifespan=lifespan,
     )
+    instrument_app(app)
 
     app.add_middleware(
         CORSMiddleware,
