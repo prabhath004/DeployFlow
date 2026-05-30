@@ -39,9 +39,11 @@ from app.models.enums import (
 from app.repositories.deployment_repo import DeploymentRepo
 from app.repositories.log_repo import LogRepo
 from app.repositories.project_repo import ProjectRepo
+from app.services.artifact_store import ArtifactStore, make_artifact_store
 from app.services.cache_service import CacheService
 from app.services.deployment_service import DeploymentService
 from app.services.heartbeat_service import HeartbeatService
+from app.services.image_registry import ImageRegistry, make_image_registry
 from app.services.log_stream_service import LogStreamService
 from app.services.queue_service import QueueMessage, RedisStreamQueue, make_queue
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -89,6 +91,8 @@ async def _process_message(
     settings: Settings,
     sessionmaker: async_sessionmaker[AsyncSession],
     stream: LogStreamService,
+    artifacts: ArtifactStore,
+    registry: ImageRegistry,
 ) -> None:
     deployment_id = msg.body.get("deployment_id")
     if not isinstance(deployment_id, str):
@@ -134,6 +138,15 @@ async def _process_message(
             )
             await asyncio.sleep(random.uniform(0.5, 1.5))  # simulated build
 
+            # Phase 9: "push" the image to the configured registry and stamp the URI.
+            image_tag = f"{deployment.branch}-{deployment.id[-12:]}"
+            image_uri = await registry.push(deployment_id=deployment.id, tag=image_tag)
+            deployment.image_uri = image_uri
+            await _emit(
+                session=session, stream=stream, deployment_id=deployment_id,
+                level=LogLevel.INFO, message=f"Pushed image: {image_uri}",
+            )
+
             await service._set_status(deployment, DeploymentStatus.DEPLOYING)
             await session.commit()
             await _emit(
@@ -164,6 +177,26 @@ async def _process_message(
                 session=session, stream=stream, deployment_id=deployment_id,
                 level=LogLevel.ERROR, message=f"Deployment failed: {exc}",
             )
+        finally:
+            # Phase 9: archive the full log to S3 (or whatever ArtifactStore
+            # is configured). Best-effort — don't fail the deployment on
+            # an upload hiccup.
+            try:
+                from app.repositories.log_repo import LogRepo
+                logs = await LogRepo(session).list_for_deployment(deployment_id)
+                text = "\n".join(
+                    f"{l.created_at.isoformat()} | {l.level:5s} | {l.source} | {l.message}"
+                    for l in logs
+                )
+                uri = await artifacts.upload_text(
+                    key=f"{deployment_id}.log",
+                    body=text,
+                    content_type="text/plain",
+                )
+                if not uri.startswith("noop://"):
+                    print(f"[worker] archived logs for {deployment_id} → {uri}", flush=True)
+            except Exception as exc:
+                print(f"[worker] log upload failed for {deployment_id}: {exc}", flush=True)
 
 
 async def main() -> None:
@@ -179,6 +212,8 @@ async def main() -> None:
 
     stream = LogStreamService(get_redis())
     heartbeat = HeartbeatService(get_redis(), settings)
+    artifacts = make_artifact_store(settings)
+    registry = make_image_registry(settings)
     await heartbeat.touch(worker_id, WorkerStatus.IDLE.value)
 
     engine = get_engine()
@@ -199,6 +234,7 @@ async def main() -> None:
                     await _process_message(
                         msg=o, settings=settings,
                         sessionmaker=sessionmaker, stream=stream,
+                        artifacts=artifacts, registry=registry,
                     )
                     await queue.ack(o.message_id)
                 last_orphan_check = now
@@ -212,6 +248,7 @@ async def main() -> None:
                 await _process_message(
                     msg=msg, settings=settings,
                     sessionmaker=sessionmaker, stream=stream,
+                    artifacts=artifacts, registry=registry,
                 )
                 await queue.ack(msg.message_id)
             except Exception as exc:

@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     sqs_visibility_timeout: int = Field(default=60, ge=1)   # how long a worker has to ack
     sqs_wait_time_seconds: int = Field(default=20, ge=0, le=20)  # long-poll
 
+    # Phase 9 — S3 + ECR
+    artifacts_backend: Literal["none", "s3"] = "none"
+    s3_artifacts_bucket: str | None = None
+    s3_artifacts_prefix: str = "deployments/"
+    ecr_repository_uri: str | None = None    # e.g. 1234.dkr.ecr.us-east-1.amazonaws.com/deployflow
+
 
 @lru_cache
 def get_settings() -> Settings:
