@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Phase 2 — PostgreSQL
     # Format: postgresql+asyncpg://user:pass@host:port/dbname
     database_url: str = (
-        "postgresql+asyncpg://deployflow:deployflow@localhost:5432/deployflow"
+        "postgresql+asyncpg://deployflow:deployflow@localhost:5433/deployflow"
     )
     db_echo: bool = False
     db_pool_size: int = Field(default=5, ge=1)

@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deployflow-postgres
+    environment:
+      POSTGRES_USER: deployflow
+      POSTGRES_PASSWORD: deployflow
+      POSTGRES_DB: deployflow
+    ports:
+      # Host 5433 → container 5432 to avoid clashing with any other local Postgres.
+      - "5433:5432"
+    volumes:
+      - deployflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deployflow -d deployflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  deployflow_pgdata:
