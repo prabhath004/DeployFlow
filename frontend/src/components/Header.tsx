@@ -6,7 +6,7 @@ export function Logo({ className = "" }: { className?: string }) {
   return (
     <Link
       to="/projects"
-      className={`group inline-flex items-center gap-2 font-mono text-base font-semibold tracking-tight text-white ${className}`}
+      className={`group inline-flex items-center gap-2 font-mono font-semibold tracking-tight text-white ${className || "text-base"}`}
     >
       <span aria-hidden className="text-white">
         {"▲"}

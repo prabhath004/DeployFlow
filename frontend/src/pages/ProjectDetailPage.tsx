@@ -31,8 +31,7 @@ export default function ProjectDetailPage() {
     } catch (err) {
       if (err instanceof ApiError) setError(err.detail);
       else setError("Failed to load project.");
-      // Make sure the skeleton/empty state resolves even on first-load failure.
-      setProject((prev) => prev);
+      // Make sure the skeleton state resolves to an empty list on first-load failure.
       setDeployments((prev) => prev ?? []);
     }
   }, [id]);

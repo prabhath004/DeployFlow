@@ -13,9 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# setuptools is needed because some OpenTelemetry packages import
-# pkg_resources, which isn't bundled with bare Python venvs.
-RUN pip install --upgrade pip setuptools wheel
+# setuptools is needed because some OpenTelemetry packages still import
+# pkg_resources, which was removed in setuptools 81+. Pin below that.
+RUN pip install --upgrade pip "setuptools<80" wheel
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
