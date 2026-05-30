@@ -43,7 +43,7 @@ from app.services.cache_service import CacheService
 from app.services.deployment_service import DeploymentService
 from app.services.heartbeat_service import HeartbeatService
 from app.services.log_stream_service import LogStreamService
-from app.services.queue_service import QueueMessage, RedisStreamQueue
+from app.services.queue_service import QueueMessage, RedisStreamQueue, make_queue
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 # Sentinel set by SIGTERM/SIGINT handlers. Loop checks it between jobs.
@@ -173,8 +173,9 @@ async def main() -> None:
     worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"
     print(f"[worker] starting {worker_id}", flush=True)
 
-    queue = RedisStreamQueue(get_redis())
-    await queue.ensure_group()
+    queue = make_queue(settings, get_redis())
+    if isinstance(queue, RedisStreamQueue):
+        await queue.ensure_group()
 
     stream = LogStreamService(get_redis())
     heartbeat = HeartbeatService(get_redis(), settings)

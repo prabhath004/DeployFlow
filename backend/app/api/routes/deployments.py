@@ -12,7 +12,7 @@ from app.services.deployment_service import (
     DeploymentService,
     ProjectNotFoundError,
 )
-from app.services.queue_service import RedisStreamQueue
+from app.services.queue_service import make_queue
 from app.services.rate_limit_service import (
     RateLimitExceededError,
     RateLimitService,
@@ -26,7 +26,7 @@ def _service(session, redis, settings) -> DeploymentService:
         ProjectRepo(session),
         cache=CacheService(redis, settings),
         rate_limit=RateLimitService(redis, settings),
-        queue=RedisStreamQueue(redis),
+        queue=make_queue(settings, redis),
     )
 
 

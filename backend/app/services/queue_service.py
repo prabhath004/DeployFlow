@@ -125,3 +125,95 @@ class RedisStreamQueue(QueueService):
 
     async def depth(self) -> int:
         return await self.redis.xlen(self.STREAM)
+
+
+class SqsQueue(QueueService):
+    """AWS SQS implementation.
+
+    Mapping to the QueueService contract:
+      publish()         → SendMessage
+      consume()         → ReceiveMessage with WaitTimeSeconds (long poll)
+      ack()             → DeleteMessage (using the ReceiptHandle)
+      reclaim_orphans() → no-op; SQS auto-redelivers when VisibilityTimeout
+                          expires without DeleteMessage.
+
+    `message_id` here is actually the SQS ReceiptHandle, since that's what
+    DeleteMessage needs. Callers shouldn't introspect it.
+    """
+
+    def __init__(
+        self,
+        *,
+        queue_url: str,
+        region: str,
+        endpoint_url: str | None,
+    ) -> None:
+        import aioboto3  # local import keeps boto3 off the import path when not used
+        self._session = aioboto3.Session()
+        self._queue_url = queue_url
+        self._region = region
+        self._endpoint_url = endpoint_url
+
+    def _client(self):
+        return self._session.client(
+            "sqs",
+            region_name=self._region,
+            endpoint_url=self._endpoint_url,
+        )
+
+    async def publish(self, body: dict[str, Any]) -> str:
+        async with self._client() as sqs:
+            resp = await sqs.send_message(
+                QueueUrl=self._queue_url,
+                MessageBody=json.dumps(body),
+            )
+        return resp["MessageId"]
+
+    async def consume(self, *, consumer: str, block_ms: int) -> QueueMessage | None:
+        wait_seconds = min(20, max(0, block_ms // 1000))  # SQS max long-poll is 20s
+        async with self._client() as sqs:
+            resp = await sqs.receive_message(
+                QueueUrl=self._queue_url,
+                MaxNumberOfMessages=1,
+                WaitTimeSeconds=wait_seconds,
+            )
+        messages = resp.get("Messages") or []
+        if not messages:
+            return None
+        m = messages[0]
+        try:
+            body = json.loads(m["Body"])
+        except json.JSONDecodeError:
+            # Bad payload — delete so it doesn't loop forever via the DLQ.
+            await self.ack(m["ReceiptHandle"])
+            return None
+        return QueueMessage(message_id=m["ReceiptHandle"], body=body)
+
+    async def ack(self, message_id: str) -> None:
+        async with self._client() as sqs:
+            await sqs.delete_message(
+                QueueUrl=self._queue_url,
+                ReceiptHandle=message_id,
+            )
+
+    async def reclaim_orphans(
+        self, *, consumer: str, idle_ms: int
+    ) -> list[QueueMessage]:
+        # SQS does this for you: unacked messages reappear after VisibilityTimeout.
+        return []
+
+
+def make_queue(settings, redis) -> QueueService:
+    """Factory: read settings.queue_backend and return the right implementation.
+
+    Used by both the API (via routes/deps) and the worker (in its main()).
+    """
+    if settings.queue_backend == "sqs":
+        if not settings.sqs_queue_url:
+            raise RuntimeError("QUEUE_BACKEND=sqs but SQS_QUEUE_URL is not set")
+        return SqsQueue(
+            queue_url=settings.sqs_queue_url,
+            region=settings.aws_region,
+            endpoint_url=settings.aws_endpoint_url,
+        )
+    return RedisStreamQueue(redis)

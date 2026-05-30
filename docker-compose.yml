@@ -111,7 +111,7 @@ services:
     restart: unless-stopped
 
   jaeger:
-    image: jaegertracing/all-in-one:1.61
+    image: jaegertracing/all-in-one:1.76.0
     container_name: deployflow-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -131,6 +131,26 @@ services:
       - deployflow_promdata:/prometheus
     ports:
       - "9090:9090"
+    restart: unless-stopped
+
+  # LocalStack fakes AWS APIs (SQS, S3, etc.) for offline dev.
+  # Activate by setting QUEUE_BACKEND=sqs + AWS_ENDPOINT_URL=http://localstack:4566
+  # on the api + worker services. With profile=aws-local it stays off by default.
+  localstack:
+    image: localstack/localstack:3.8.1
+    container_name: deployflow-localstack
+    profiles: ["aws-local"]
+    environment:
+      SERVICES: sqs,s3
+      DEFAULT_REGION: us-east-1
+      DEBUG: 0
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   grafana:

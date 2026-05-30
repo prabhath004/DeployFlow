@@ -3,9 +3,10 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings, get_settings
 from app.db.database import get_session
 from app.db.redis import get_redis
-from app.services.queue_service import RedisStreamQueue
+from app.services.queue_service import RedisStreamQueue, make_queue
 
 router = APIRouter(tags=["health"])
 
@@ -21,6 +22,7 @@ async def ready(
     response: Response,
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
     """Readiness: pings every downstream. Returns 503 if any are down."""
     checks = {"api": "ok", "database": "ok", "redis": "ok", "queue": "ok"}
@@ -38,10 +40,12 @@ async def ready(
         checks["redis"] = "down"
 
     try:
-        queue = RedisStreamQueue(redis)
-        await queue.ensure_group()
-        # XLEN is O(1); a successful call confirms the stream is reachable.
-        await queue.depth()
+        queue = make_queue(settings, redis)
+        if isinstance(queue, RedisStreamQueue):
+            await queue.ensure_group()
+            await queue.depth()       # O(1) reachability check
+        # For SQS we don't ping on every /ready to avoid burning AWS request quota.
+        # The boto3 client validates URL at first publish/receive.
     except Exception:
         checks["queue"] = "down"
 

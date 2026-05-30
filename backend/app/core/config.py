@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     rate_limit_deploy_per_minute: int = Field(default=10, ge=1)        # per user
     worker_heartbeat_ttl: int = Field(default=30, ge=1)                # seconds
 
+    # Phase 8 — Queue backend selection + AWS SQS
+    queue_backend: Literal["redis", "sqs"] = "redis"
+    aws_region: str = "us-east-1"
+    # For LocalStack / dev: set AWS_ENDPOINT_URL=http://localhost:4566
+    # In prod, leave this None so boto3 hits real AWS.
+    aws_endpoint_url: str | None = None
+    sqs_queue_url: str | None = None
+    sqs_dlq_url: str | None = None
+    sqs_visibility_timeout: int = Field(default=60, ge=1)   # how long a worker has to ack
+    sqs_wait_time_seconds: int = Field(default=20, ge=0, le=20)  # long-poll
+
 
 @lru_cache
 def get_settings() -> Settings:
