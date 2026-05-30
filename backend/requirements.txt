@@ -4,3 +4,9 @@ uvicorn[standard]==0.32.0
 pydantic==2.9.2
 pydantic-settings==2.6.0
 python-dotenv==1.0.1
+
+# Phase 2 — PostgreSQL + ORM + migrations
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.13.3
+python-ulid==2.7.0
