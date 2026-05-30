@@ -1,0 +1,41 @@
+# OpenTelemetry Collector pipeline for local dev.
+#   Receivers:  OTLP over gRPC (4317) and HTTP (4318) — the app sends to these.
+#   Exporters:
+#     - otlp/jaeger: traces forwarded to Jaeger's OTLP receiver on port 4317.
+#     - prometheus:  metrics exposed on :8889 for Prometheus to scrape.
+#     - debug:       prints to stdout so we can confirm data is arriving.
+# Phase 10 will instrument the app to actually emit signals here.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]

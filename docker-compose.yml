@@ -1,3 +1,16 @@
+# Local-only stack. AWS hybrid (Phase 8+) overrides via env, doesn't change this file.
+#
+# Internal-vs-external addressing:
+#   - Containers reach each other by SERVICE name on the docker network
+#     (postgres:5432, redis:6379, otel-collector:4317).
+#   - Your host machine reaches them via the published port
+#     (localhost:5433 → postgres, localhost:6380 → redis, etc).
+#
+# Run everything:        docker compose up -d
+# Just data services:    docker compose up -d postgres redis
+# Tail a service:        docker compose logs -f api worker
+# Stop + wipe volumes:   docker compose down -v
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,8 +20,7 @@ services:
       POSTGRES_PASSWORD: deployflow
       POSTGRES_DB: deployflow
     ports:
-      # Host 5433 → container 5432 to avoid clashing with any other local Postgres.
-      - "5433:5432"
+      - "5433:5432"   # host 5433 → container 5432 (avoid clash with other local PGs)
     volumes:
       - deployflow_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,8 +34,7 @@ services:
     image: redis:7-alpine
     container_name: deployflow-redis
     ports:
-      # Host 6380 → container 6379 to avoid clashing with any other local Redis.
-      - "6380:6379"
+      - "6380:6379"   # host 6380 → container 6379
     volumes:
       - deployflow_redisdata:/data
     healthcheck:
@@ -33,6 +44,115 @@ services:
       retries: 10
     restart: unless-stopped
 
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: deployflow-api
+    command: ["api-with-migrate"]   # runs `alembic upgrade head` then uvicorn
+    environment:
+      DATABASE_URL: postgresql+asyncpg://deployflow:deployflow@postgres:5432/deployflow
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: dev-secret-change-me-in-production-please
+      LOG_LEVEL: INFO
+      ENVIRONMENT: local
+      # Phase 10 will use this:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: deployflow-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else sys.exit(1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://deployflow:deployflow@postgres:5432/deployflow
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: dev-secret-change-me-in-production-please
+      LOG_LEVEL: INFO
+      ENVIRONMENT: local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: deployflow-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy   # wait until migrations have run
+    restart: unless-stopped
+    # Try: `docker compose up -d --scale worker=3` to fan out work.
+
+  # ── Observability stack (idle until Phase 10 wires the app to emit) ─────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    container_name: deployflow-otel
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./infra/otel/collector.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # /metrics for Prometheus to scrape
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.61
+    container_name: deployflow-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "14250:14250"   # internal gRPC, used by collector
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: deployflow-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=2d"   # keep things small
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - deployflow_promdata:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: deployflow-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - deployflow_grafanadata:/var/lib/grafana
+    ports:
+      - "3001:3000"   # host 3001 to avoid clashing with other local Grafanas
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
+
 volumes:
   deployflow_pgdata:
   deployflow_redisdata:
+  deployflow_promdata:
+  deployflow_grafanadata:
