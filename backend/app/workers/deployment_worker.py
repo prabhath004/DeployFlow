@@ -102,6 +102,19 @@ async def _process_message(
         print(f"[worker] dropping malformed job: {msg.body}", flush=True)
         return
 
+    with tracer.start_as_current_span("worker.process_deployment") as span, obs_metrics.timed_worker_job():
+        span.set_attribute("deployflow.deployment_id", deployment_id)
+        span.set_attribute("deployflow.project_id", str(msg.body.get("project_id")))
+        await _process_message_inner(
+            deployment_id=deployment_id,
+            settings=settings, sessionmaker=sessionmaker, stream=stream,
+            artifacts=artifacts, registry=registry,
+        )
+
+
+async def _process_message_inner(
+    *, deployment_id: str, settings, sessionmaker, stream, artifacts, registry,
+) -> None:
     async with sessionmaker() as session:
         service = DeploymentService(
             session,
@@ -168,6 +181,7 @@ async def _process_message(
                 session=session, stream=stream, deployment_id=deployment_id,
                 level=LogLevel.INFO, message="Deployment succeeded",
             )
+            obs_metrics.inc_succeeded()
         except Exception as exc:
             deployment.error_message = str(exc)[:500]
             try:
@@ -180,6 +194,7 @@ async def _process_message(
                 session=session, stream=stream, deployment_id=deployment_id,
                 level=LogLevel.ERROR, message=f"Deployment failed: {exc}",
             )
+            obs_metrics.inc_failed()
         finally:
             # Phase 9: archive the full log to S3 (or whatever ArtifactStore
             # is configured). Best-effort — don't fail the deployment on
