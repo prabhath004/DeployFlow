@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_session
 from app.db.redis import get_redis
+from app.services.queue_service import RedisStreamQueue
 
 router = APIRouter(tags=["health"])
 
@@ -36,7 +37,13 @@ async def ready(
     except Exception:
         checks["redis"] = "down"
 
-    # Phase 6 will replace the queue stub with a real check.
+    try:
+        queue = RedisStreamQueue(redis)
+        await queue.ensure_group()
+        # XLEN is O(1); a successful call confirms the stream is reachable.
+        await queue.depth()
+    except Exception:
+        checks["queue"] = "down"
 
     if any(v != "ok" for v in checks.values()):
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

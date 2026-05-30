@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.deployment import Deployment
 from app.models.enums import DeploymentStatus
 from app.repositories.deployment_repo import DeploymentRepo
@@ -9,6 +11,7 @@ from app.services.deployment_state_machine import (
     TERMINAL,
     assert_transition,
 )
+from app.services.queue_service import QueueService
 from app.services.rate_limit_service import RateLimitService
 
 
@@ -25,15 +28,19 @@ class DeploymentService:
 
     def __init__(
         self,
+        session: AsyncSession,
         deployment_repo: DeploymentRepo,
         project_repo: ProjectRepo,
         cache: CacheService | None = None,
         rate_limit: RateLimitService | None = None,
+        queue: QueueService | None = None,
     ) -> None:
+        self.session = session
         self.deployment_repo = deployment_repo
         self.project_repo = project_repo
         self.cache = cache
         self.rate_limit = rate_limit
+        self.queue = queue
 
     async def trigger(
         self, *, project_id: str, user_id: str, branch_override: str | None
@@ -52,6 +59,25 @@ class DeploymentService:
             branch=branch_override or project.branch,
         )
         await self._set_status(deployment, DeploymentStatus.QUEUED)
+
+        # Phase 6: hand the job off to the worker. Payload matches PRD §9.7.
+        # CRITICAL ORDERING: commit FIRST so the worker can see the row when
+        # it consumes the message. Otherwise we get a race where the worker
+        # SELECTs and finds nothing because the API transaction is still open.
+        # If the publish fails, the row is committed but unprocessed — the
+        # worker's reclaim/scan logic will pick it up.
+        if self.queue is not None:
+            await self.session.commit()
+            await self.queue.publish(
+                {
+                    "deployment_id": deployment.id,
+                    "project_id": project.id,
+                    "user_id": user_id,
+                    "repository_url": project.repository_url,
+                    "branch": deployment.branch,
+                    "attempt": deployment.attempt,
+                }
+            )
         return deployment
 
     async def get_owned(
@@ -118,11 +144,8 @@ class DeploymentService:
             deployment.finished_at = now
         # Cache-aside write: DB row is already mutated; mirror to Redis.
         # Failure here is non-fatal — cache can rebuild on next read miss.
-        import sys
-        print(f"[diag] _set_status cache={self.cache is not None} dep={deployment.id} new={new_status.value}", file=sys.stderr, flush=True)
         if self.cache is not None:
             try:
                 await self.cache.set_deployment_status(deployment.id, new_status.value)
-                print(f"[diag] cache.set OK key=deployment:{deployment.id}:status", file=sys.stderr, flush=True)
-            except Exception as exc:
-                print(f"[cache write failed] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            except Exception:
+                pass

@@ -18,3 +18,6 @@ email-validator==2.2.0
 
 # Phase 5 — Redis
 redis==5.2.0
+
+# Phase 6 — SSE for live log streaming
+sse-starlette==2.1.3
