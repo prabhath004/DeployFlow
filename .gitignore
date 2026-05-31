@@ -24,3 +24,12 @@ venv/
 # Build artifacts
 dist/
 build/
+
+# Terraform local files
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json

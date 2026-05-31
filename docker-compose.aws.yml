@@ -1,0 +1,40 @@
+# Override: point api + worker at REAL AWS (SQS, S3, ECR) instead of LocalStack.
+# Postgres + Redis stay local (in containers) to keep things cheap.
+#
+# Usage:
+#   docker compose --env-file backend/.env -f docker-compose.yml -f docker-compose.aws.yml up -d
+#
+# Reads from backend/.env. Required keys:
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+#   SQS_QUEUE_URL, SQS_DLQ_URL
+#   S3_ARTIFACTS_BUCKET, ECR_REPOSITORY_URI
+
+services:
+  api:
+    environment:
+      QUEUE_BACKEND: sqs
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SQS_DLQ_URL: ${SQS_DLQ_URL}
+      ARTIFACTS_BACKEND: s3
+      S3_ARTIFACTS_BUCKET: ${S3_ARTIFACTS_BUCKET}
+      S3_ARTIFACTS_PREFIX: deployments/
+      ECR_REPOSITORY_URI: ${ECR_REPOSITORY_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      # AWS_ENDPOINT_URL is deliberately NOT set — boto3 hits real AWS.
+
+  worker:
+    environment:
+      QUEUE_BACKEND: sqs
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SQS_DLQ_URL: ${SQS_DLQ_URL}
+      ARTIFACTS_BACKEND: s3
+      S3_ARTIFACTS_BUCKET: ${S3_ARTIFACTS_BUCKET}
+      S3_ARTIFACTS_PREFIX: deployments/
+      ECR_REPOSITORY_URI: ${ECR_REPOSITORY_URI}
+      JWT_SECRET: ${JWT_SECRET}
