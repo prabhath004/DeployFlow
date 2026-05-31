@@ -83,6 +83,10 @@ Users can register, log in, create projects, trigger deployments, watch live log
 
 Important: deleting a deployment removes the DeployFlow database row and cascaded database logs. It does not currently delete the ECS service, ECR image, S3 archive, or CloudWatch logs.
 
+<img width="1166" height="766" alt="image" src="https://github.com/user-attachments/assets/4799563a-4057-46b7-86d0-7e1d45a1d540" />
+
+
+
 ## API Overview
 
 ```text
