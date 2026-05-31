@@ -75,8 +75,7 @@ class ImageRegistry:
             commit_sha = (
                 await _run_capture(["git", "-C", str(repo_dir), "rev-parse", "HEAD"])
             ).strip()
-            if not (repo_dir / "Dockerfile").exists():
-                raise RuntimeError("Repository does not contain a Dockerfile at its root")
+            await _ensure_build_recipe(repo_dir, log)
 
             await self._docker_login(log)
 
@@ -128,6 +127,42 @@ class ImageRegistry:
 def safe_image_tag(branch: str, deployment_id: str) -> str:
     branch_part = re.sub(r"[^A-Za-z0-9_.-]+", "-", branch).strip(".-") or "main"
     return f"{branch_part[:80]}-{deployment_id[-12:]}"
+
+
+async def _ensure_build_recipe(repo_dir: Path, log: LogCallback) -> None:
+    if (repo_dir / "Dockerfile").exists():
+        await log("Found root Dockerfile")
+        return
+
+    if (repo_dir / "index.html").exists():
+        await log("No Dockerfile found; detected static site from root index.html")
+        (repo_dir / "Dockerfile").write_text(
+            "\n".join(
+                [
+                    "FROM python:3.13-alpine",
+                    "WORKDIR /app",
+                    "COPY . .",
+                    "EXPOSE 8000",
+                    'CMD ["python", "-m", "http.server", "8000", "--bind", "0.0.0.0"]',
+                    "",
+                ]
+            )
+        )
+        dockerignore = repo_dir / ".dockerignore"
+        existing = dockerignore.read_text() if dockerignore.exists() else ""
+        additions = ["Dockerfile", ".git", ".DS_Store", "node_modules", "dist", "build"]
+        merged = existing.splitlines()
+        for item in additions:
+            if item not in merged:
+                merged.append(item)
+        dockerignore.write_text("\n".join(merged).strip() + "\n")
+        await log("Generated static-site Dockerfile for port 8000")
+        return
+
+    raise RuntimeError(
+        "No root Dockerfile found, and DeployFlow could not infer a build type. "
+        "Supported zero-config fallback right now: static site with root index.html."
+    )
 
 
 async def _run(

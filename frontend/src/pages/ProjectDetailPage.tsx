@@ -107,6 +107,24 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const deleteDeployment = async (depId: string) => {
+    const confirmed = window.confirm("Delete this deployment and its logs?");
+    if (!confirmed) return;
+    setActionId(depId);
+    setError(null);
+    try {
+      await apiFetch<void>(`/deployments/${depId}`, { method: "DELETE" });
+      setDeployments((prev) =>
+        prev ? prev.filter((d) => d.id !== depId) : prev,
+      );
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.detail);
+      else setError("Delete failed.");
+    } finally {
+      setActionId(null);
+    }
+  };
+
   return (
     <Shell>
       {!project ? (
@@ -178,6 +196,7 @@ export default function ProjectDetailPage() {
                 dep={d}
                 onRetry={() => retry(d.id)}
                 onCancel={() => cancel(d.id)}
+                onDelete={() => deleteDeployment(d.id)}
                 busy={actionId === d.id}
               />
             ))}
@@ -192,16 +211,19 @@ function DeploymentRow({
   dep,
   onRetry,
   onCancel,
+  onDelete,
   busy,
 }: {
   dep: Deployment;
   onRetry: () => void;
   onCancel: () => void;
+  onDelete: () => void;
   busy: boolean;
 }) {
   const shortId = dep.id.length > 12 ? dep.id.slice(-12) : dep.id;
   const canRetry = dep.status === "FAILED";
   const canCancel = !isTerminal(dep.status);
+  const canDelete = isTerminal(dep.status);
 
   return (
     <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -245,6 +267,20 @@ function DeploymentRow({
             loading={busy}
           >
             Cancel
+          </Button>
+        ) : null}
+        {canDelete ? (
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={(e) => {
+              e.preventDefault();
+              onDelete();
+            }}
+            disabled={busy}
+            loading={busy}
+          >
+            Delete
           </Button>
         ) : null}
       </div>

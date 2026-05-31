@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError, openSse } from "../api/client";
 import type { Deployment, LogEntry } from "../api/types";
 import { isTerminal } from "../api/types";
@@ -18,6 +18,7 @@ import { formatTimestamp, logTimestamp, relativeTime } from "../lib/time";
 
 export default function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [dep, setDep] = useState<Deployment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -98,6 +99,23 @@ export default function DeploymentDetailPage() {
     }
   };
 
+  const deleteDeployment = async () => {
+    if (!id || !dep) return;
+    const confirmed = window.confirm("Delete this deployment and its logs?");
+    if (!confirmed) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      await apiFetch<void>(`/deployments/${id}`, { method: "DELETE" });
+      navigate(`/projects/${dep.project_id}`, { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.detail);
+      else setError("Delete failed.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   return (
     <Shell>
       <div className="mb-6">
@@ -156,6 +174,16 @@ export default function DeploymentDetailPage() {
                   loading={actionBusy}
                 >
                   Cancel
+                </Button>
+              ) : null}
+              {isTerminal(dep.status) ? (
+                <Button
+                  variant="danger"
+                  onClick={deleteDeployment}
+                  disabled={actionBusy}
+                  loading={actionBusy}
+                >
+                  Delete
                 </Button>
               ) : null}
             </div>

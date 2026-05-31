@@ -7,6 +7,7 @@ from app.schemas.deployment import DeploymentResponse, DeploymentTriggerRequest
 from app.services.cache_service import CacheService
 from app.services.deployment_service import (
     DeploymentNotCancellableError,
+    DeploymentNotDeletableError,
     DeploymentNotFoundError,
     DeploymentNotRetryableError,
     DeploymentService,
@@ -167,3 +168,27 @@ async def cancel_deployment(
             detail="Deployment is already in a terminal state",
         )
     return DeploymentResponse.model_validate(deployment)
+
+
+@deployment_router.delete("/{deployment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_deployment(
+    deployment_id: str,
+    session: SessionDep,
+    redis: RedisDep,
+    settings: SettingsDep,
+    current_user: CurrentUser,
+) -> None:
+    service = _service(session, redis, settings)
+    try:
+        deployment = await service.get_owned(
+            deployment_id=deployment_id, user_id=current_user.id
+        )
+    except DeploymentNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    try:
+        await service.delete(deployment)
+    except DeploymentNotDeletableError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cancel active deployments before deleting them",
+        )

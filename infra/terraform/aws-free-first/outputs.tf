@@ -66,7 +66,7 @@ output "iam_secret_access_key" {
 # Convenience: a ready-to-paste .env block.
 output "env_block" {
   description = "Copy this into backend/.env after `terraform apply`."
-  value = <<-EOT
+  value       = <<-EOT
     QUEUE_BACKEND=sqs
     AWS_REGION=${data.aws_region.current.name}
     # leave AWS_ENDPOINT_URL UNSET for real AWS
@@ -86,5 +86,5 @@ output "env_block" {
     DEPLOYED_APP_PORT=${var.deployed_app_port}
     ECS_CPU_ARCHITECTURE=${var.ecs_cpu_architecture}
   EOT
-  sensitive = true
+  sensitive   = true
 }

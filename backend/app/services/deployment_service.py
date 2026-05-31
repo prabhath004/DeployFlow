@@ -20,6 +20,7 @@ from app.services.rate_limit_service import RateLimitService
 class DeploymentNotFoundError(Exception): ...
 class DeploymentNotRetryableError(Exception): ...
 class DeploymentNotCancellableError(Exception): ...
+class DeploymentNotDeletableError(Exception): ...
 class ProjectNotFoundError(Exception): ...
 
 
@@ -149,6 +150,21 @@ class DeploymentService:
         await self._set_status(deployment, DeploymentStatus.CANCELLED)
         deployment.finished_at = datetime.now(timezone.utc)
         return deployment
+
+    async def delete(self, deployment: Deployment) -> None:
+        current = DeploymentStatus(deployment.status)
+        if current not in {
+            DeploymentStatus.SUCCEEDED,
+            DeploymentStatus.FAILED,
+            DeploymentStatus.CANCELLED,
+        }:
+            raise DeploymentNotDeletableError(deployment.id)
+        if self.cache is not None:
+            try:
+                await self.cache.invalidate_deployment_status(deployment.id)
+            except Exception:
+                pass
+        await self.deployment_repo.delete(deployment)
 
     async def _set_status(
         self, deployment: Deployment, new_status: DeploymentStatus

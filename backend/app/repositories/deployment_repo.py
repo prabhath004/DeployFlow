@@ -38,3 +38,6 @@ class DeploymentRepo:
         self, deployment: Deployment, status: DeploymentStatus
     ) -> None:
         deployment.status = status.value
+
+    async def delete(self, deployment: Deployment) -> None:
+        await self.session.delete(deployment)
