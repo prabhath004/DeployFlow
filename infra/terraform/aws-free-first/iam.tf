@@ -79,7 +79,44 @@ data "aws_iam_policy_document" "deployflow_runtime" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = ["${aws_cloudwatch_log_group.deployflow.arn}:*"]
+    resources = [
+      "${aws_cloudwatch_log_group.deployflow.arn}:*",
+      "${aws_cloudwatch_log_group.deployflow_apps.arn}:*",
+    ]
+  }
+
+  # ECS Fargate — create/update one-service-per-project demo deployments.
+  statement {
+    sid    = "ECSDeployments"
+    effect = "Allow"
+    actions = [
+      "ecs:CreateService",
+      "ecs:UpdateService",
+      "ecs:DescribeServices",
+      "ecs:ListTasks",
+      "ecs:DescribeTasks",
+      "ecs:RegisterTaskDefinition",
+      "ecs:DescribeTaskDefinition",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PassECSTaskExecutionRole"
+    effect = "Allow"
+    actions = [
+      "iam:PassRole",
+    ]
+    resources = [aws_iam_role.ecs_task_execution.arn]
+  }
+
+  statement {
+    sid    = "EC2NetworkLookup"
+    effect = "Allow"
+    actions = [
+      "ec2:DescribeNetworkInterfaces",
+    ]
+    resources = ["*"]
   }
 }
 

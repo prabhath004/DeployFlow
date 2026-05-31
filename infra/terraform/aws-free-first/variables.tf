@@ -40,6 +40,35 @@ variable "ecr_max_image_count" {
   description = "ECR lifecycle: keep only the most recent N images."
 }
 
+variable "deployed_app_port" {
+  type        = number
+  default     = 8000
+  description = "Container port exposed by deployed apps on ECS Fargate."
+}
+
+variable "ecs_task_cpu" {
+  type        = number
+  default     = 256
+  description = "Fargate task CPU units for deployed apps. 256 is the smallest option."
+}
+
+variable "ecs_task_memory" {
+  type        = number
+  default     = 512
+  description = "Fargate task memory MB for deployed apps. 512 pairs with 256 CPU."
+}
+
+variable "ecs_cpu_architecture" {
+  type        = string
+  default     = "ARM64"
+  description = "CPU architecture for deployed app tasks. ARM64 matches Apple Silicon local Docker builds."
+
+  validation {
+    condition     = contains(["ARM64", "X86_64"], var.ecs_cpu_architecture)
+    error_message = "ecs_cpu_architecture must be ARM64 or X86_64."
+  }
+}
+
 # Common tags applied to every resource. The Project tag is the PRD §16 audit hook.
 locals {
   tags = {

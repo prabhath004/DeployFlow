@@ -116,10 +116,30 @@ class DeploymentService:
         current = DeploymentStatus(deployment.status)
         if current != DeploymentStatus.FAILED:
             raise DeploymentNotRetryableError(deployment.id)
+        project = await self.project_repo.get(deployment.project_id)
+        if project is None or project.user_id != deployment.user_id:
+            raise ProjectNotFoundError(deployment.project_id)
         await self._set_status(deployment, DeploymentStatus.RETRYING)
-        await self._set_status(deployment, DeploymentStatus.QUEUED)
         deployment.attempt += 1
         deployment.error_message = None
+        deployment.started_at = None
+        deployment.finished_at = None
+        await self._set_status(deployment, DeploymentStatus.QUEUED)
+        if self.queue is not None:
+            await self.session.commit()
+            with tracer.start_as_current_span("queue.publish_retry") as span:
+                span.set_attribute("deployflow.deployment_id", deployment.id)
+                with obs_metrics.timed_publish():
+                    await self.queue.publish(
+                        {
+                            "deployment_id": deployment.id,
+                            "project_id": project.id,
+                            "user_id": deployment.user_id,
+                            "repository_url": project.repository_url,
+                            "branch": deployment.branch,
+                            "attempt": deployment.attempt,
+                        }
+                    )
         return deployment
 
     async def cancel(self, deployment: Deployment) -> Deployment:

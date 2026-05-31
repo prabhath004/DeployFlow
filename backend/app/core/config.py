@@ -60,6 +60,19 @@ class Settings(BaseSettings):
     s3_artifacts_prefix: str = "deployments/"
     ecr_repository_uri: str | None = None    # e.g. 1234.dkr.ecr.us-east-1.amazonaws.com/deployflow
 
+    # Real deployment target — ECS Fargate. Disabled for local-only mode.
+    deploy_backend: Literal["none", "ecs"] = "none"
+    deployed_app_port: int = Field(default=8000, ge=1, le=65535)
+    deploy_image_platform: str = "linux/arm64"
+    ecs_cluster_name: str | None = None
+    ecs_subnet_ids: str | None = None          # comma-separated subnet IDs
+    ecs_security_group_id: str | None = None
+    ecs_task_execution_role_arn: str | None = None
+    ecs_app_log_group: str | None = None
+    ecs_task_cpu: int = Field(default=256, ge=256)
+    ecs_task_memory: int = Field(default=512, ge=512)
+    ecs_cpu_architecture: Literal["ARM64", "X86_64"] = "ARM64"
+
 
 @lru_cache
 def get_settings() -> Settings:

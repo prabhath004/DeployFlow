@@ -28,6 +28,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:${PATH}"
 
+# Real AWS deployment mode needs git for cloning repositories and the Docker
+# CLI for building/pushing images through the mounted host Docker socket.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates git docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
 # A non-root user — never run web processes as root in containers.
 RUN groupadd --system app && useradd --system --gid app --home /app app
 

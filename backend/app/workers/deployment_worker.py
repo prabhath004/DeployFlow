@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import random
 import signal
 import socket
 import sys
@@ -45,8 +44,9 @@ from app.observability.tracing import setup_tracing, tracer
 from app.services.artifact_store import ArtifactStore, make_artifact_store
 from app.services.cache_service import CacheService
 from app.services.deployment_service import DeploymentService
+from app.services.ecs_deployer import EcsDeployer
 from app.services.heartbeat_service import HeartbeatService
-from app.services.image_registry import ImageRegistry, make_image_registry
+from app.services.image_registry import ImageRegistry, make_image_registry, safe_image_tag
 from app.services.log_stream_service import LogStreamService
 from app.services.queue_service import QueueMessage, RedisStreamQueue, make_queue
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -96,6 +96,7 @@ async def _process_message(
     stream: LogStreamService,
     artifacts: ArtifactStore,
     registry: ImageRegistry,
+    deployer: EcsDeployer,
 ) -> None:
     deployment_id = msg.body.get("deployment_id")
     if not isinstance(deployment_id, str):
@@ -106,14 +107,15 @@ async def _process_message(
         span.set_attribute("deployflow.deployment_id", deployment_id)
         span.set_attribute("deployflow.project_id", str(msg.body.get("project_id")))
         await _process_message_inner(
+            msg=msg,
             deployment_id=deployment_id,
             settings=settings, sessionmaker=sessionmaker, stream=stream,
-            artifacts=artifacts, registry=registry,
+            artifacts=artifacts, registry=registry, deployer=deployer,
         )
 
 
 async def _process_message_inner(
-    *, deployment_id: str, settings, sessionmaker, stream, artifacts, registry,
+    *, msg: QueueMessage, deployment_id: str, settings, sessionmaker, stream, artifacts, registry, deployer,
 ) -> None:
     async with sessionmaker() as session:
         service = DeploymentService(
@@ -150,30 +152,51 @@ async def _process_message_inner(
             await session.commit()
             await _emit(
                 session=session, stream=stream, deployment_id=deployment_id,
-                level=LogLevel.INFO, message="Building image",
+                level=LogLevel.INFO, message="Building image from repository Dockerfile",
             )
-            await asyncio.sleep(random.uniform(0.5, 1.5))  # simulated build
 
-            # Phase 9: "push" the image to the configured registry and stamp the URI.
-            image_tag = f"{deployment.branch}-{deployment.id[-12:]}"
-            image_uri = await registry.push(deployment_id=deployment.id, tag=image_tag)
-            deployment.image_uri = image_uri
-            await _emit(
-                session=session, stream=stream, deployment_id=deployment_id,
-                level=LogLevel.INFO, message=f"Pushed image: {image_uri}",
+            repository_url = msg.body.get("repository_url")
+            branch = msg.body.get("branch") or deployment.branch
+            if not isinstance(repository_url, str):
+                raise RuntimeError("deployment job missing repository_url")
+            if not isinstance(branch, str):
+                raise RuntimeError("deployment job missing branch")
+
+            async def log_build(line: str) -> None:
+                await _emit(
+                    session=session,
+                    stream=stream,
+                    deployment_id=deployment_id,
+                    level=LogLevel.INFO,
+                    message=line,
+                )
+
+            image_tag = safe_image_tag(branch, deployment.id)
+            build = await registry.build_and_push(
+                repository_url=repository_url,
+                branch=branch,
+                deployment_id=deployment.id,
+                tag=image_tag,
+                log=log_build,
             )
+            deployment.commit_sha = build.commit_sha
+            deployment.image_uri = build.image_uri
+            await service._set_status(deployment, DeploymentStatus.PUSHING_IMAGE)
+            await session.commit()
 
             await service._set_status(deployment, DeploymentStatus.DEPLOYING)
             await session.commit()
             await _emit(
                 session=session, stream=stream, deployment_id=deployment_id,
-                level=LogLevel.INFO, message="Deploying",
+                level=LogLevel.INFO, message="Deploying to ECS Fargate",
             )
-            await asyncio.sleep(random.uniform(0.5, 1.5))  # simulated deploy
-
-            # 10% simulated failure rate for demos.
-            if random.random() < 0.1:
-                raise RuntimeError("simulated deploy failure")
+            deployment_url = await deployer.deploy(
+                project_id=deployment.project_id,
+                deployment_id=deployment.id,
+                image_uri=build.image_uri,
+                log=log_build,
+            )
+            deployment.deployment_url = deployment_url or None
 
             await service._set_status(deployment, DeploymentStatus.SUCCEEDED)
             await session.commit()
@@ -235,6 +258,7 @@ async def main() -> None:
     heartbeat = HeartbeatService(get_redis(), settings)
     artifacts = make_artifact_store(settings)
     registry = make_image_registry(settings)
+    deployer = EcsDeployer(settings)
     await heartbeat.touch(worker_id, WorkerStatus.IDLE.value)
 
     engine = get_engine()
@@ -255,7 +279,7 @@ async def main() -> None:
                     await _process_message(
                         msg=o, settings=settings,
                         sessionmaker=sessionmaker, stream=stream,
-                        artifacts=artifacts, registry=registry,
+                        artifacts=artifacts, registry=registry, deployer=deployer,
                     )
                     await queue.ack(o.message_id)
                 last_orphan_check = now
@@ -269,7 +293,7 @@ async def main() -> None:
                 await _process_message(
                     msg=msg, settings=settings,
                     sessionmaker=sessionmaker, stream=stream,
-                    artifacts=artifacts, registry=registry,
+                    artifacts=artifacts, registry=registry, deployer=deployer,
                 )
                 await queue.ack(msg.message_id)
             except Exception as exc:

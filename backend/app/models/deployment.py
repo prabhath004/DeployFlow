@@ -26,6 +26,7 @@ class Deployment(Base, TimestampMixin):
     branch: Mapped[str] = mapped_column(String(120), nullable=False)
     commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     image_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    deployment_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

@@ -25,6 +25,34 @@ output "cloudwatch_log_group" {
   value = aws_cloudwatch_log_group.deployflow.name
 }
 
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.deployflow_apps.name
+}
+
+output "ecs_subnet_ids" {
+  value = data.aws_subnets.default.ids
+}
+
+output "ecs_security_group_id" {
+  value = aws_security_group.ecs_apps.id
+}
+
+output "ecs_task_execution_role_arn" {
+  value = aws_iam_role.ecs_task_execution.arn
+}
+
+output "ecs_app_log_group" {
+  value = aws_cloudwatch_log_group.deployflow_apps.name
+}
+
+output "deployed_app_port" {
+  value = var.deployed_app_port
+}
+
+output "ecs_cpu_architecture" {
+  value = var.ecs_cpu_architecture
+}
+
 output "iam_access_key_id" {
   value     = aws_iam_access_key.deployflow_runtime.id
   sensitive = true
@@ -49,6 +77,14 @@ output "env_block" {
     ARTIFACTS_BACKEND=s3
     S3_ARTIFACTS_BUCKET=${aws_s3_bucket.artifacts.bucket}
     ECR_REPOSITORY_URI=${aws_ecr_repository.deployflow.repository_url}
+    DEPLOY_BACKEND=ecs
+    ECS_CLUSTER_NAME=${aws_ecs_cluster.deployflow_apps.name}
+    ECS_SUBNET_IDS=${join(",", data.aws_subnets.default.ids)}
+    ECS_SECURITY_GROUP_ID=${aws_security_group.ecs_apps.id}
+    ECS_TASK_EXECUTION_ROLE_ARN=${aws_iam_role.ecs_task_execution.arn}
+    ECS_APP_LOG_GROUP=${aws_cloudwatch_log_group.deployflow_apps.name}
+    DEPLOYED_APP_PORT=${var.deployed_app_port}
+    ECS_CPU_ARCHITECTURE=${var.ecs_cpu_architecture}
   EOT
   sensitive = true
 }

@@ -17,6 +17,7 @@ class DeploymentResponse(BaseModel):
     branch: str
     commit_sha: str | None
     image_uri: str | None
+    deployment_url: str | None
     error_message: str | None
     attempt: int
     started_at: datetime | None

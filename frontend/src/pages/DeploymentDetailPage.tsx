@@ -183,6 +183,7 @@ function DeploymentFields({ dep }: { dep: Deployment }) {
     ["Branch", dep.branch],
     ["Commit", dep.commit_sha ?? "—"],
     ["Image", dep.image_uri ?? "—"],
+    ["URL", dep.deployment_url ?? "—"],
     ["Started", formatTimestamp(dep.started_at)],
     ["Finished", formatTimestamp(dep.finished_at)],
     ["Created", formatTimestamp(dep.created_at)],
@@ -197,7 +198,18 @@ function DeploymentFields({ dep }: { dep: Deployment }) {
               {label}
             </dt>
             <dd className="mt-0.5 break-all font-mono text-xs text-neutral-300">
-              {value}
+              {label === "URL" && value !== "—" ? (
+                <a
+                  href={value}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-emerald-300 hover:text-emerald-200"
+                >
+                  {value}
+                </a>
+              ) : (
+                value
+              )}
             </dd>
           </div>
         ))}

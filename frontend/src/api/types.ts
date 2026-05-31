@@ -51,6 +51,7 @@ export interface Deployment {
   branch: string;
   commit_sha: string | null;
   image_uri: string | null;
+  deployment_url: string | null;
   error_message: string | null;
   attempt: number;
   started_at: string | null;
