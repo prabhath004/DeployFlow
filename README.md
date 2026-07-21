@@ -29,6 +29,11 @@ Normal repositories should include a root `Dockerfile`.
 
 Static-site fallback is supported: if there is no root `Dockerfile` but there is a root `index.html`, DeployFlow generates a temporary Dockerfile and serves the site on port `8000`.
 
+---
+Architecture
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/b53368b7-f5ef-4ff4-adde-dc3a92275d9a" />
+---
+
 ## Features
 
 - JWT authentication and user ownership checks.
